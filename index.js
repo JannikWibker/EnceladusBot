@@ -9,7 +9,7 @@ const bodyParser = require('body-parser')
 
 const { spotify_auth } = require('./spotify.js')
 
-const { token, spotify_client_id, spotify_secret_id, spotify_redirect_uri } = require('./config.js')
+const { port, token, spotify_client_id, spotify_secret_id, spotify_redirect_uri } = require('./config.js')
 
 const spotify = new Spotify({
   redirectUri: spotify_redirect_uri + '/spotify-callback',
@@ -47,7 +47,7 @@ app.get('/spotify-callback', (req, res) => {
 })
 
 
-app.listen(3000)
+app.listen(port)
 
 const md = require('./md.js')
 
