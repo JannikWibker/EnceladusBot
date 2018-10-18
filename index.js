@@ -28,7 +28,7 @@ app.get('/spotify-callback', (req, res) => {
   console.log(req.query)
   res.end('ok')
 
-  const [user_uuid, user_id] = req.query.state.split('/')
+  const [user_uuid, user_id] = req.query.state.split('-')
 
   const session = localSession.DB.get('sessions').getById(user_id + ':' + user_id).value()
 
@@ -147,7 +147,7 @@ bot.command('lmgtfy', ctx =>
 
 bot.command('spotify', ctx => {
   if(!ctx.session.spotify_access_token) {
-    const authorizeUrl = spotify.createAuthorizeURL(['user-read-playback-state', 'user-modify-playback-state', 'user-read-currently-playing', 'streaming', 'app-remote-control'], ctx.session.uuid + '/' + ctx.from.id)
+    const authorizeUrl = spotify.createAuthorizeURL(['user-read-playback-state', 'user-modify-playback-state', 'user-read-currently-playing', 'streaming', 'app-remote-control'], ctx.session.uuid + '-' + ctx.from.id)
     ctx.replyWithMarkdown(`To be able to use @EnceladusBot with spotify you have to authorize @EnceladusBot to do some basic things [here](${authorizeUrl})\n\n  You can always sign out again using \`/spotify_logout\`\n\n  [Authorize Enceladus for Spotify](${authorizeUrl})`)
   } else {
     ctx.replyWithMarkdown('`' + ctx.session.spotify_code + '`')
