@@ -1,13 +1,15 @@
-const crypto = require('crypto')
+const path = require('path')
+
 const Telegraf = require('telegraf')
 const LocalSession = require('telegraf-session-local')
-const qrcode = require('qrcode')
-const imageDataURI = require('image-data-uri')
 const Spotify = require('spotify-web-api-node')
+
 const express = require('express')
 const bodyParser = require('body-parser')
 
 const { spotify_auth } = require('./spotify.js')
+const { commands } = require('./commands')
+const utils = require('./utils.js')
 
 const { port, token, spotify_client_id, spotify_secret_id, spotify_redirect_uri } = require('./config.js')
 
@@ -24,9 +26,13 @@ const app = express()
 app.use(bodyParser.urlencoded({ extended: true }))
 app.use(bodyParser.json())
 
+app.use(express.static('public'))
+
+app.get('/', (req, res) => res.redirect('https://web.jannik.ml/enceladusbot'))
+
 app.get('/spotify-callback', (req, res) => {
   console.log(req.query)
-  res.end('ok')
+  res.sendFile(path.join(__dirname, 'public', 'connected_spotify.html'))
 
   const [user_uuid, user_id] = req.query.state.split('-')
 
@@ -49,99 +55,19 @@ app.get('/spotify-callback', (req, res) => {
 
 app.listen(port)
 
-const md = require('./md.js')
-
-const gen_id = (length=48) => crypto.randomBytes(length).toString('base64')
-
 const logs = []
 
 const bot = new Telegraf(token)
 
 bot.use(localSession.middleware())
-
+bot.use(utils.logger(logs))
 bot.start(ctx => {
   console.log('started:', ctx.from.id)
   console.log(ctx)
   return ctx.reply('Welcome!')
 })
 
-bot.use((ctx, next) => {
-  if(ctx.update.message) {
-    if(!ctx.session || !ctx.session.uuid) ctx.session.uuid = gen_id()
-    console.log(`${ctx.update.message.from.username}: ${ctx.update.message.text}`)
-    console.log('||> ' + new Date(ctx.update.message.date) + ' ' + ctx.session.uuid.substr(0, 8))
-    logs.push({
-      message: ctx.update.message.text,
-      sender: ctx.update.message.from.username,
-      date: new Date(ctx.update.message.date)
-    })
-  } else {
-    console.log('ctx.update.message object not found, error')
-  }
-  next()
-})
-
-const qr_fn = (text, cb) =>
-  qrcode.toDataURL(text, (err, url) =>
-    cb({source: imageDataURI.decode(url).dataBuffer}, {caption: text}))
-
-const md_fn = (text, date, cb) => md(text, date + '.md', (filename) => {
-  console.log('done: ' + filename)
-  cb({source: filename})
-})
-
-/*
-help - show this help page
-homepage - show the bots homepage
-author - shows my name and username
-github - show my github (https://github.com/JannikWibker)
-src - show the github repo for the bot (https://github.com/JannikWibker/EnceladusBot)
-qr - create a QR code for the specified text
-md - create a pdf from the specified markdown
-lmgtfy - create a lmgtfy link for the specified text
-*/
-
-bot.command('help', ctx =>
-  ctx.replyWithMarkdown(`commands:
-  full documentation: http://jannik.ddns.net/enceladusbot/docs
-  help: show this help page
-  homepage: show the bots homepage
-  author: shows my name and username
-  github: show my github (https://github.com/JannikWibker)
-  src: show the github repo for the bot (https://github.com/JannikWibker/EnceladusBot)
-  qr: create a QR code for the specified text
-    usage: \`/qr http://jannik.ddns.net/enceladusbot\`
-  md: create a pdf from the specified markdown (supports LaTeX math syntax, dot diagrams, ...; uses [mume](https://github.com/shd101wyy/mume) and [puppeteer](https://github.com/GoogleChrome/puppeteer) under the hood)
-    usage:
-\`/md this is the **sum** for calculating the *left sum* for a given $f(x)$ from $0$ to $l$ and with a stepsize of $s$: $$\\sum_{i=0}^{\\frac{l}{s}} f(i \\cdot s) \\cdot s$$\`
-  lmgtfy: create a lmgtfy link for the specified text
-    usage: \`/lmgtfy how to use let me google that for you\`
-  `))
-
-bot.on('sticker', ctx => ctx.reply('👍🏻'))
-
-// "generic" commands
-
-bot.command('whoami', ctx => ctx.replyWithMarkdown(`You are *${ctx.from.username}* and internally I may know you as \`${ctx.session.uuid}\` or \`${ctx.from.id}\`. Also this some data I received from Telegram about you:\n\`\`\`json\n${JSON.stringify(ctx.from, 2, 2)}\n\`\`\``))
-
-bot.command('homepage', ctx => ctx.reply('https://bot.jannik.ml'))
-
-bot.command('github', ctx => ctx.reply('https://github.com/JannikWibker'))
-
-bot.command('src', ctx => ctx.reply('https://github.com/JannikWibker/enceladusbot, https://git.jannik.ml/jannik/EnceladusBot'))
-
-bot.command('author', ctx => ctx.reply(`Jannik Wibker: @jannnik`))
-
-// more specialized commands
-
-bot.command('qr', ctx =>
-  qr_fn(ctx.update.message.text.substr(4) || 'sample qr code', ctx.replyWithPhoto))
-
-bot.command('md', ctx =>
-  md_fn(ctx.update.message.text.substr(4), ctx.update.message.date, ctx.replyWithDocument))
-
-bot.command('lmgtfy', ctx =>
-  ctx.reply('http://www.lmgtfy.com/?q=' + ctx.update.message.text.split(' ').slice(1).join('+')))
+Object.keys(commands).map(key => bot.command(key, ctx => commands[key](ctx)))
 
 // spotify commands
 
@@ -150,12 +76,12 @@ bot.command('spotify', ctx => {
     const authorizeUrl = spotify.createAuthorizeURL(['user-read-playback-state', 'user-modify-playback-state', 'user-read-currently-playing', 'streaming', 'app-remote-control'], ctx.session.uuid + '-' + ctx.from.id)
     ctx.replyWithMarkdown(`To be able to use @EnceladusBot with spotify you have to authorize @EnceladusBot to do some basic things [here](${authorizeUrl})\n\n  You can always sign out again using \`/spotify_logout\`\n\n  [Authorize Enceladus for Spotify](${authorizeUrl})`)
   } else {
-    ctx.replyWithMarkdown('`' + ctx.session.spotify_code + '`')
+    ctx.replyWithMarkdown('`' + ctx.session.spotify_callback_code + '`')
   }
 })
 
 bot.command('spotify_logout', ctx => {
-  ctx.session.spotify_code = null
+  ctx.session.spotify_callback_code = null
   ctx.session.spotify_access_token = null
   ctx.session.spotify_refresh_token = null
   console.log(ctx.session)
@@ -185,7 +111,7 @@ bot.on('text', ctx => {
       .catch(() => ctx.reply('Your account is not a Premium account, spotify does not allow that.'))
     })
     .catch(() => {
-      ctx.reply('something went wrong')
+      ctx.reply('something went wrong, probably just not logged in')
     })
   } else if(
     text === 'song' || text === 'song?' || 
@@ -213,7 +139,7 @@ bot.on('text', ctx => {
         })
       })
       .catch(() => {
-        ctx.reply('something went wrong')
+        ctx.reply('something went wrong, probably just not logged in')
       })
     }
   
