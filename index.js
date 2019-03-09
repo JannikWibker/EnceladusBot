@@ -11,13 +11,52 @@ const { spotify_auth } = require('./spotify.js')
 const { commands } = require('./commands')
 const utils = require('./utils.js')
 
-const { port, token, spotify_client_id, spotify_secret_id, spotify_redirect_uri } = require('./config.js')
+const passport = require('passport')
+const accounts = require('./accounts.js')
+const fetch = require('node-fetch')
+
+const { version } = require('./package.json')
+
+const { port, token, spotify_client_id, spotify_secret_id, spotify_redirect_uri, auth } = require('./config.js')
+
+const auth_fetch = (jwt, url, method='GET', body={}) => fetch('https://accounts.jannik.ml' + url, {
+  method: method,
+  headers: {
+    'Authorization': 'Bearer ' + jwt,
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(body)
+})
+  .then(res => res.json())
 
 const spotify = new Spotify({
   redirectUri: spotify_redirect_uri + '/spotify-callback',
   clientId: spotify_client_id,
   clientSecret: spotify_secret_id
 })
+
+accounts(
+  auth.SECRET,
+  auth.ACCOUNTSERVER || 'http://localhost:3003',
+  auth.KNOWN_SERVICE,
+  auth.RETRY_ON_FAIL,
+  { name: auth.NAME, id: auth.ID, url: auth.CALLBACKURL || ('http://localhost:' + port + '/auth'), app: auth.APP || 'https://t.me/enceladusbot' },
+  auth.RETRY_ON_FAIL ? 10 : 0,
+  ({ JWTStrategy, login, logout }) => {
+
+    passport.use(JWTStrategy)
+    app.use(passport.initialize())
+
+    app.post('/auth/login', passport.authenticate('jwt', { session: false }), login)
+    app.post('/auth/logout', passport.authenticate('jwt', { session: false }), logout)
+
+    app.get('/', (req, res) => res.send('server is up and running'))
+
+    app.get('/current-version', (_, res) => res.send(version))
+
+  }
+)
 
 const localSession = new LocalSession({ database: 'sessions.json' })
 
@@ -36,6 +75,8 @@ app.get('/spotify-callback', (req, res) => {
 
   const [user_uuid, user_id] = req.query.state.split('-')
 
+  console.log(user_id)
+
   const session = localSession.DB.get('sessions').getById(user_id + ':' + user_id).value()
 
   spotify.authorizationCodeGrant(req.query.code).then(({ body }) => {
@@ -50,6 +91,42 @@ app.get('/spotify-callback', (req, res) => {
     console.log(localSession.DB.get('sessions').getById(user_id + ':' + user_id).value())
   })
 
+})
+
+app.get('/auth-callback', (req, res) => {
+  console.log('user authenticated', req.query)
+  res.sendFile(path.join(__dirname, 'public', 'connected_auth.html'))
+  
+  const temp_split = req.query.href.split(',')
+
+  const state = {
+    jwt: req.query.jwt,
+    telegram: {
+      username: temp_split[0],
+      session: temp_split[1],
+      user_id: temp_split[2]
+    },
+    ...JSON.parse(Buffer.from(req.query.jwt.split('.')[1], 'base64').toString('binary'))
+  }
+
+  console.log(state)
+
+  const session = localSession.DB.get('sessions').getById(state.telegram.user_id + ':' + state.telegram.user_id).value()
+
+  session.data.auth_jwt = state.jwt
+  session.data.auth_username = state.username
+  session.data.auth_user_id = state.id
+  session.data.auth_account_type = state.account_type
+  session.data.auth_iat = state.iat
+
+  // should this somehow get the refresh_token?
+  
+
+  localSession.DB.get('sessions').updateById(state.telegram.user_id + ':' + state.telegram.user_id, session)
+})
+
+app.post('/login', (req, res) => {
+  res.end('ok')
 })
 
 
@@ -88,8 +165,52 @@ bot.command('spotify_logout', ctx => {
   ctx.reply('logged out of spotify.')
 })
 
+bot.command('auth', ctx => {
+  if(!ctx.session.auth_jwt || ctx.session.auth_iat*1000 > Date.now() + 30 * 60 * 1000) {
+    const link = auth.ACCOUNTSERVER + '/login?from=' + encodeURIComponent(auth.REDIRECTURL) + '&href=' + encodeURIComponent(ctx.from.username + ',' + ctx.session.uuid + ',' + ctx.from.id) + '&id=' + auth.ID
+    console.log(link)
+    ctx.replyWithMarkdown('authenticate yourself [here](' + link + ')')
+  } else {
+    ctx.replyWithMarkdown('your telegram account is linked to the account *' + ctx.session.auth_username + '*')
+  }
+})
+
+bot.command('auth_logout', ctx => {
+  ctx.session.auth_jwt = null
+  ctx.session.auth_username = null
+  ctx.session.auth_user_id = null
+  ctx.session.auth_account_type = null
+  ctx.session.auth_iat = null
+  console.log(ctx.session)
+  ctx.reply('logged out of auth.')
+})
+
 bot.on('text', ctx => {
   const text = ctx.update.message.text
+
+  if(
+    text === 'list accounts' || text === 'list-accounts' || text === 'accounts list' ||
+    text === 'list account'  || text === 'list-account'  || text === 'account list'  ||
+    text === 'list users'    || text === 'list-users'    || text === 'users list'    ||
+    text === 'list user'    || text === 'list-user'    || text === 'user list') {
+      auth_fetch(ctx.session.auth_jwt, '/users/list', 'POST', {})
+        .then(json => {
+          const prettified_users = json.users.map(account =>
+            `*${account.username}* (${account.first_name} ${account.last_name})\t[${account.email}](mailto://${account.email}), ${account.id}${account.account_type === 'default' ? '' : ', *' + account.account_type + '*'}`
+          )
+          console.log(prettified_users.join('\n'))
+          ctx.replyWithMarkdown('*accounts*:\n' + prettified_users.join('\n'))
+        })
+        .catch(err => {
+          console.log(err)
+          ctx.reply(err)
+        })
+
+  } else if(
+    text === 'get account' || text === 'show account' || text === 'account details' ||
+    text === 'get user'    || text === 'show user'    || text === 'user details') {
+      ctx.reply('showing auth user details if account status allows.')
+  }
 
   if(text === 'start playing' || text === 'play'  || text === 'spotify play'  || text === 'spotify start playing') {
     spotify_auth(spotify, ctx.session)
@@ -105,7 +226,6 @@ bot.on('text', ctx => {
   } else if(text === 'stop playing'  || text === 'pause' || text === 'spotify pause' || text === 'spotify stop playing' ) {
     spotify_auth(spotify, ctx.session)
     .then(spotify => {
-      ctx.reply('paused now')
       spotify.pause()
       .then(() => ctx.reply('paused now'))
       .catch(() => ctx.reply('Your account is not a Premium account, spotify does not allow that.'))
@@ -115,9 +235,11 @@ bot.on('text', ctx => {
     })
   } else if(
     text === 'song' || text === 'song?' || 
-    text === 'what is this song' || text === 'what is this song?' || 
-    text === 'what is that song' || text === 'what is that song?' || 
-    text === 'what song is this' || text === 'what song is this?' || 
+    text === 'what is this song' || text === 'what is this song?' ||
+    text === 'what is that song' || text === 'what is that song?' ||
+    text === 'whats that song'   || text === 'whats that song?'   ||
+    text === 'whats that song'   || text === 'whats that song?'   ||
+    text === 'what song is this' || text === 'what song is this?' ||
     text === 'what song is that' || text === 'what song is that?') {
     spotify_auth(spotify, ctx.session)
       .then(spotify => {
