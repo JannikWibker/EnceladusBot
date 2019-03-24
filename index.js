@@ -17,7 +17,7 @@ const fetch = require('node-fetch')
 
 const { version } = require('./package.json')
 
-const { port, token, spotify_client_id, spotify_secret_id, spotify_redirect_uri, auth } = require('./config.js')
+const { port, env, token, spotify_client_id, spotify_secret_id, spotify_redirect_uri, auth } = require('./config.js')
 
 const auth_fetch = (jwt, url, method='GET', body={}) => fetch('https://accounts.jannik.ml' + url, {
   method: method,
@@ -146,6 +146,8 @@ bot.start(ctx => {
 
 Object.keys(commands).map(key => bot.command(key, ctx => commands[key](ctx)))
 
+bot.command('env', ctx => ctx.reply('running in ' + env + ' environment.'))
+
 // spotify commands
 
 bot.command('spotify', ctx => {
@@ -195,21 +197,36 @@ bot.on('text', ctx => {
     text === 'list user'    || text === 'list-user'    || text === 'user list') {
       auth_fetch(ctx.session.auth_jwt, '/users/list', 'POST', {})
         .then(json => {
+          if(json.status === 'failure') {
+            return ctx.reply('You\'re not permitted.')
+          }
           const prettified_users = json.users.map(account =>
             `*${account.username}* (${account.first_name} ${account.last_name})\t[${account.email}](mailto://${account.email}), ${account.id}${account.account_type === 'default' ? '' : ', *' + account.account_type + '*'}`
           )
           console.log(prettified_users.join('\n'))
-          ctx.replyWithMarkdown('*accounts*:\n' + prettified_users.join('\n'))
+          return ctx.replyWithMarkdown('*accounts*:\n' + prettified_users.join('\n'))
         })
         .catch(err => {
-          console.log(err)
-          ctx.reply(err)
+          ctx.reply('Something went wrong.')
         })
 
   } else if(
     text === 'get account' || text === 'show account' || text === 'account details' ||
     text === 'get user'    || text === 'show user'    || text === 'user details') {
-      ctx.reply('showing auth user details if account status allows.')
+      auth_fetch(ctx.session.auth_jwt, '/users/get', 'POST', {})
+        .then(json => {
+          if(json.status === 'failure') return ctx.reply('You\'re not permitted.')
+
+        })
+        .catch(err => ctx.reply('Something went wrong.'))
+  } else if(
+    1
+  ) {
+
+  } else if(
+    1
+  ) {
+    
   }
 
   if(text === 'start playing' || text === 'play'  || text === 'spotify play'  || text === 'spotify start playing') {

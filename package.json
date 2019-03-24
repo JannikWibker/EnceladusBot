@@ -5,7 +5,7 @@
   "author": "Jannik Wibker",
   "license": "MIT",
   "dependencies": {
-    "@shd101wyy/mume": "^0.2.7",
+    "@shd101wyy/mume": "^0.3.8",
     "body-parser": "^1.18.3",
     "express": "^4.16.4",
     "image-data-uri": "^1.0.1",
