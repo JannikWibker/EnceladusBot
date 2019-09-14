@@ -4,7 +4,7 @@ LABEL version="1.0.0"
 LABEL name="telegram-bot"
 
 COPY . /app
-WORKDRI "/app"
+WORKDIR "/app"
 
 # install all dependencies via npm
 RUN npm i
