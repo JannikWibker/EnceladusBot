@@ -10,7 +10,7 @@
     "express": "^4.17.1",
     "image-data-uri": "^1.1.1",
     "memory-cache": "^0.2.0",
-    "node-fetch": "^2.6.0",
+    "node-fetch": "^2.6.1",
     "node-rsa": "^1.0.5",
     "passport": "^0.4.0",
     "passport-jwt": "^4.0.0",
