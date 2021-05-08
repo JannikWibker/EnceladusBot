@@ -2008,8 +2008,8 @@ vega-loader@^4.0.0:
     vega-util "^1.11.0"
 
 vega-util@^1.11.0:
-  version "1.11.2"
-  resolved "https://registry.yarnpkg.com/vega-util/-/vega-util-1.11.2.tgz#0a96da3207c54ab73b0da45ec5a4e88d32355881"
+  version "1.16.1"
+  resolved "https://registry.yarnpkg.com/vega-util/-/vega-util-1.16.1.tgz#992bf3c3b6e145797214d99862841baea417ba39"
 
 verror@1.10.0:
   version "1.10.0"
